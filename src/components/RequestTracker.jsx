@@ -301,7 +301,7 @@ const RequestTracker = () => {
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                   <Typography variant="caption">Response Body</Typography>
                 </AccordionSummary>
-                <AccordionDetails>
+                <AccordionDetails sx={{ maxHeight: "50vh", overflowY: "auto" }}>
                   <pre style={{ fontSize: 11 }}>
                     {typeof endTrace.responseBody === "string"
                       ? endTrace.responseBody
