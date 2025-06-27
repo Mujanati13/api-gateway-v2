@@ -65,6 +65,7 @@ const RequestTracker = () => {
     method: "",
   });
   const [realTimeMode, setRealTimeMode] = useState(true);
+  const [expandedAccordions, setExpandedAccordions] = useState({});
 
   useEffect(() => {
     loadTraces();
@@ -149,6 +150,13 @@ const RequestTracker = () => {
 
   const handleTabChange = (event, newValue) => {
     setCurrentTab(newValue);
+  };
+
+  const handleAccordionChange = (accordionId) => (event, isExpanded) => {
+    setExpandedAccordions(prev => ({
+      ...prev,
+      [accordionId]: isExpanded
+    }));
   };
 
   const getStatusColor = (status) => {
@@ -447,16 +455,22 @@ const RequestTracker = () => {
   });
 
   const TracesTab = () => (
-    <Box>
-      <TableContainer component={Paper} sx={{ bgcolor: "#fff" }}>
-        <Table>
+    <Box sx={{ width: "100%", overflow: "hidden" }}>
+      <TableContainer component={Paper} sx={{ 
+        bgcolor: "#fff", 
+        maxHeight: "70vh",
+        maxWidth: "100vw",
+        overflow: "auto",
+        width: "100%"
+      }}>
+        <Table stickyHeader size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
           <TableHead>
             <TableRow>
-              <TableCell>Time</TableCell>
-              <TableCell>Method</TableCell>
-              <TableCell>URL</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Details</TableCell>
+              <TableCell sx={{ width: "15%" }}>Time</TableCell>
+              <TableCell sx={{ width: "10%" }}>Method</TableCell>
+              <TableCell sx={{ width: "35%" }}>URL</TableCell>
+              <TableCell sx={{ width: "10%" }}>Status</TableCell>
+              <TableCell sx={{ width: "30%" }}>Details</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -475,7 +489,7 @@ const RequestTracker = () => {
                   sx={{
                     bgcolor: endTrace
                       ? endTrace.status === "SUCCESS"
-                        ? "success.light"
+                        ? "transparent" // Remove green background
                         : "error.light"
                       : "warning.light",
                     opacity: endTrace ? 1 : 0.7,
@@ -498,17 +512,20 @@ const RequestTracker = () => {
                     />
                   </TableCell>
                   <TableCell>
-                    <Typography
-                      variant="body2"
-                      sx={{
-                        maxWidth: 300,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {displayTrace.url}
-                    </Typography>
+                    <Tooltip title={displayTrace.url} arrow placement="top">
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          maxWidth: 300,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          cursor: "help",
+                        }}
+                      >
+                        {displayTrace.url}
+                      </Typography>
+                    </Tooltip>
                   </TableCell>
 
                   <TableCell>
@@ -520,24 +537,21 @@ const RequestTracker = () => {
                   </TableCell>
 
                   <TableCell>
-                    <Accordion sx={{ boxShadow: "none" }}>
+                    <Accordion 
+                      sx={{ boxShadow: "none" }}
+                      disableGutters
+                      expanded={expandedAccordions[`main-${requestId}`] || false}
+                      onChange={handleAccordionChange(`main-${requestId}`)}
+                    >
                       <AccordionSummary
                         expandIcon={<ExpandMoreIcon />}
                         sx={{ minHeight: "auto", p: 0 }}
                       >
                         <Typography variant="caption">View</Typography>
                       </AccordionSummary>
-                      <AccordionDetails sx={{ p: 2 }}>
+                      <AccordionDetails sx={{ p: 2, maxWidth: "100%", overflow: "hidden" }}>
                         <Box>
-                          <Typography variant="subtitle2" gutterBottom>
-                            Request ID:
-                            <Typography
-                              component="span"
-                              sx={{ fontFamily: "monospace", ml: 1 }}
-                            >
-                              {requestId}
-                            </Typography>
-                          </Typography>
+                          
 
                           {startTrace && (
                             <Box sx={{ mb: 2 }}>
@@ -548,7 +562,12 @@ const RequestTracker = () => {
                                 Started: {formatTimestamp(startTrace.timestamp)}
                               </Typography>
                               {startTrace.headers && (
-                                <Accordion sx={{ mt: 1 }}>
+                                <Accordion 
+                                  sx={{ mt: 1 }}
+                                  disableGutters
+                                  expanded={expandedAccordions[`req-headers-${requestId}`] || false}
+                                  onChange={handleAccordionChange(`req-headers-${requestId}`)}
+                                >
                                   <AccordionSummary
                                     expandIcon={<ExpandMoreIcon />}
                                   >
@@ -562,6 +581,8 @@ const RequestTracker = () => {
                                         fontSize: "11px",
                                         overflow: "auto",
                                         maxHeight: "150px",
+                                        wordWrap: "break-word",
+                                        whiteSpace: "pre-wrap"
                                       }}
                                     >
                                       {JSON.stringify(
@@ -574,7 +595,12 @@ const RequestTracker = () => {
                                 </Accordion>
                               )}
                               {startTrace.body && (
-                                <Accordion sx={{ mt: 1 }}>
+                                <Accordion 
+                                  sx={{ mt: 1 }}
+                                  disableGutters
+                                  expanded={expandedAccordions[`req-body-${requestId}`] || false}
+                                  onChange={handleAccordionChange(`req-body-${requestId}`)}
+                                >
                                   <AccordionSummary
                                     expandIcon={<ExpandMoreIcon />}
                                   >
@@ -588,6 +614,8 @@ const RequestTracker = () => {
                                         fontSize: "11px",
                                         overflow: "auto",
                                         maxHeight: "200px",
+                                        wordWrap: "break-word",
+                                        whiteSpace: "pre-wrap"
                                       }}
                                     >
                                       {typeof startTrace.body === "string"
@@ -617,7 +645,12 @@ const RequestTracker = () => {
                                 {endTrace.statusText}
                               </Typography>
                               {endTrace.responseHeaders && (
-                                <Accordion sx={{ mt: 1 }}>
+                                <Accordion 
+                                  sx={{ mt: 1 }}
+                                  disableGutters
+                                  expanded={expandedAccordions[`res-headers-${requestId}`] || false}
+                                  onChange={handleAccordionChange(`res-headers-${requestId}`)}
+                                >
                                   <AccordionSummary
                                     expandIcon={<ExpandMoreIcon />}
                                   >
@@ -631,6 +664,8 @@ const RequestTracker = () => {
                                         fontSize: "11px",
                                         overflow: "auto",
                                         maxHeight: "150px",
+                                        wordWrap: "break-word",
+                                        whiteSpace: "pre-wrap"
                                       }}
                                     >
                                       {JSON.stringify(
@@ -643,7 +678,12 @@ const RequestTracker = () => {
                                 </Accordion>
                               )}
                               {endTrace.responseBody && (
-                                <Accordion sx={{ mt: 1 }}>
+                                <Accordion 
+                                  sx={{ mt: 1 }}
+                                  disableGutters
+                                  expanded={expandedAccordions[`res-body-${requestId}`] || false}
+                                  onChange={handleAccordionChange(`res-body-${requestId}`)}
+                                >
                                   <AccordionSummary
                                     expandIcon={<ExpandMoreIcon />}
                                   >
@@ -657,6 +697,8 @@ const RequestTracker = () => {
                                         fontSize: "11px",
                                         overflow: "auto",
                                         maxHeight: "300px",
+                                        wordWrap: "break-word",
+                                        whiteSpace: "pre-wrap"
                                       }}
                                     >
                                       {typeof endTrace.responseBody === "string"
@@ -671,7 +713,12 @@ const RequestTracker = () => {
                                 </Accordion>
                               )}
                               {endTrace.error && (
-                                <Accordion sx={{ mt: 1 }}>
+                                <Accordion 
+                                  sx={{ mt: 1 }}
+                                  disableGutters
+                                  expanded={expandedAccordions[`error-${requestId}`] || false}
+                                  onChange={handleAccordionChange(`error-${requestId}`)}
+                                >
                                   <AccordionSummary
                                     expandIcon={<ExpandMoreIcon />}
                                   >
@@ -686,6 +733,8 @@ const RequestTracker = () => {
                                         overflow: "auto",
                                         maxHeight: "200px",
                                         color: "red",
+                                        wordWrap: "break-word",
+                                        whiteSpace: "pre-wrap"
                                       }}
                                     >
                                       {JSON.stringify(endTrace.error, null, 2)}
@@ -1009,7 +1058,7 @@ const RequestTracker = () => {
       <Tabs value={currentTab} onChange={handleTabChange} sx={{ mb: 3 }}>
         {/* <Tab icon={<AnalyticsIcon />} label="Analytics" /> */}
         {/* <Tab icon={<HttpIcon />} label="Methods" /> */}
-        <Tab icon={<TimelineIcon />} label={`Traces`} />
+        {/* <Tab icon={<TimelineIcon />} label={`Traces`} /> */}
       </Tabs>
 
       {currentTab === 0 && <AnalyticsTab />}
@@ -1019,11 +1068,21 @@ const RequestTracker = () => {
       {/* Filter Dialog */}
       <Dialog
         open={filterDialogOpen}
-        onClose={() => setFilterDialogOpen(false)}
+        onClose={() => {}} // Prevent auto-close when clicking outside
         maxWidth="sm"
         fullWidth
+        disableEscapeKeyDown // Prevent closing with Escape key
       >
-        <DialogTitle>Filter Traces</DialogTitle>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          Filter Traces
+          <IconButton 
+            onClick={() => setFilterDialogOpen(false)}
+            size="small"
+            sx={{ color: 'grey.500' }}
+          >
+            <ClearIcon />
+          </IconButton>
+        </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={4}>
