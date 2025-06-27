@@ -34,6 +34,7 @@ import {
   MenuItem,
   Badge,
   LinearProgress,
+  Drawer,
 } from "@mui/material";
 import {
   ExpandMore as ExpandMoreIcon,
@@ -47,6 +48,7 @@ import {
   Send as SendIcon,
   GetApp as GetAppIcon,
   Schedule as ScheduleIcon,
+  Visibility as VisibilityIcon,
 } from "@mui/icons-material";
 import { httpInterceptor } from "../services/HTTPInterceptor";
 import { traceService } from "../services/FirebaseTraceService";
@@ -64,34 +66,19 @@ const RequestTracker = () => {
     type: "",
     method: "",
   });
-  const [realTimeMode, setRealTimeMode] = useState(true);
-  const [expandedAccordions, setExpandedAccordions] = useState({});
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedTraceGroup, setSelectedTraceGroup] = useState(null);
 
   useEffect(() => {
     loadTraces();
     loadAnalytics();
     loadMethodStats();
-
-    // Auto-refresh based on real-time mode
-    const interval = setInterval(
-      () => {
-        if (realTimeMode) {
-          loadTraces();
-          loadAnalytics();
-          loadMethodStats();
-        }
-      },
-      realTimeMode ? 5000 : 30000
-    ); // 5s for real-time, 30s for normal
-
-    return () => clearInterval(interval);
-  }, [realTimeMode]);
+  }, []);
 
   const loadTraces = async () => {
     try {
       setLoading(true);
       const sessionTraces = await httpInterceptor.getSessionTraces();
-      // Sort by timestamp (newest first)
       const sortedTraces = sessionTraces.sort(
         (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
       );
@@ -110,7 +97,6 @@ const RequestTracker = () => {
       setAnalytics(analyticsData);
     } catch (err) {
       console.error("Failed to load analytics:", err);
-      // Set empty analytics to prevent UI crashes
       setAnalytics({
         totalRequests: 0,
         successfulRequests: 0,
@@ -129,7 +115,6 @@ const RequestTracker = () => {
       setMethodStats(stats);
     } catch (err) {
       console.error("Failed to load method statistics:", err);
-      // Set empty stats to prevent UI crashes
       setMethodStats({
         totalRequests: 0,
         byMethod: {},
@@ -148,16 +133,7 @@ const RequestTracker = () => {
     loadMethodStats();
   };
 
-  const handleTabChange = (event, newValue) => {
-    setCurrentTab(newValue);
-  };
-
-  const handleAccordionChange = (accordionId) => (event, isExpanded) => {
-    setExpandedAccordions(prev => ({
-      ...prev,
-      [accordionId]: isExpanded
-    }));
-  };
+  const handleTabChange = (event, newValue) => setCurrentTab(newValue);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -192,250 +168,35 @@ const RequestTracker = () => {
   const getMethodIcon = (method) => {
     switch (method) {
       case "GET":
-        return <GetAppIcon />;
+        return <GetAppIcon fontSize="small" />;
       case "POST":
-        return <SendIcon />;
+        return <SendIcon fontSize="small" />;
       default:
-        return <HttpIcon />;
+        return <HttpIcon fontSize="small" />;
     }
   };
 
   const formatTimestamp = (timestamp) => {
     try {
       const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
-      if (isNaN(date.getTime())) {
-        return "Invalid Date";
-      }
+      if (isNaN(date.getTime())) return "Invalid Date";
       return (
         date.toLocaleString() +
         "." +
         date.getMilliseconds().toString().padStart(3, "0")
       );
-    } catch (error) {
-      console.warn("Failed to format timestamp:", timestamp, error);
+    } catch {
       return "Invalid Date";
     }
   };
 
-  const formatDuration = (ms) => {
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(2)}s`;
-  };
-
+  const formatDuration = (ms) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(2)}s`);
   const formatBytes = (bytes) => {
     if (bytes === 0) return "0 B";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const k = 1024,
+      sizes = ["B", "KB", "MB", "GB"],
+      i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-  };
-
-  const MethodAnalyticsTab = () => (
-    <Grid container spacing={3}>
-      {methodStats && (
-        <>
-          <Grid item xs={12}>
-            <Typography variant="h5" gutterBottom>
-              HTTP Method Statistics
-            </Typography>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Requests by Method
-                </Typography>
-                {Object.entries(methodStats.byMethod).map(([method, stats]) => (
-                  <Box key={method} sx={{ mb: 2 }}>
-                    <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                      <Chip
-                        icon={getMethodIcon(method)}
-                        label={`${method} (${stats.count})`}
-                        color={getMethodColor(method)}
-                        sx={{ mr: 2 }}
-                      />
-                      <Typography variant="body2">
-                        Avg: {formatDuration(stats.avgTime)}
-                      </Typography>
-                    </Box>
-                    <LinearProgress
-                      variant="determinate"
-                      value={(stats.count / methodStats.totalRequests) * 100}
-                      color={getMethodColor(method)}
-                      sx={{ height: 8, borderRadius: 4 }}
-                    />
-                  </Box>
-                ))}
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Response Time Statistics
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={6}>
-                    <Typography variant="subtitle2" color="textSecondary">
-                      Average
-                    </Typography>
-                    <Typography variant="h6" color="primary">
-                      {formatDuration(methodStats.responseTimeStats.average)}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Typography variant="subtitle2" color="textSecondary">
-                      Total Requests
-                    </Typography>
-                    <Typography variant="h6" color="secondary">
-                      {methodStats.totalRequests}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Typography variant="subtitle2" color="textSecondary">
-                      Fastest
-                    </Typography>
-                    <Typography variant="h6" color="success.main">
-                      {formatDuration(methodStats.responseTimeStats.min)}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Typography variant="subtitle2" color="textSecondary">
-                      Slowest
-                    </Typography>
-                    <Typography variant="h6" color="error.main">
-                      {formatDuration(methodStats.responseTimeStats.max)}
-                    </Typography>
-                  </Grid>
-                </Grid>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Recent GET Requests
-                </Typography>
-                <Box sx={{ maxHeight: 300, overflow: "auto" }}>
-                  {traces
-                    .filter((trace) => trace.method === "GET")
-                    .slice(0, 10)
-                    .map((trace, index) => (
-                      <Box
-                        key={trace.id}
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          mb: 1,
-                          p: 1,
-                          bgcolor: "grey.50",
-                          borderRadius: 1,
-                        }}
-                      >
-                        <GetAppIcon color="primary" sx={{ mr: 2 }} />
-                        <Box sx={{ flexGrow: 1 }}>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: "medium" }}
-                          >
-                            {trace.url}
-                          </Typography>
-                          <Typography variant="caption" color="textSecondary">
-                            {formatTimestamp(trace.timestamp)}
-                          </Typography>
-                        </Box>
-                        <Chip
-                          label={trace.status}
-                          color={getStatusColor(trace.status)}
-                          size="small"
-                          sx={{ mr: 1 }}
-                        />
-                        {trace.responseTime && (
-                          <Typography variant="caption" sx={{ minWidth: 60 }}>
-                            {formatDuration(trace.responseTime)}
-                          </Typography>
-                        )}
-                      </Box>
-                    ))}
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Recent POST Requests
-                </Typography>
-                <Box sx={{ maxHeight: 300, overflow: "auto" }}>
-                  {traces
-                    .filter((trace) => trace.method === "POST")
-                    .slice(0, 10)
-                    .map((trace, index) => (
-                      <Box
-                        key={trace.id}
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          mb: 1,
-                          p: 1,
-                          bgcolor: "grey.50",
-                          borderRadius: 1,
-                        }}
-                      >
-                        <SendIcon color="secondary" sx={{ mr: 2 }} />
-                        <Box sx={{ flexGrow: 1 }}>
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: "medium" }}
-                          >
-                            {trace.url}
-                          </Typography>
-                          <Typography variant="caption" color="textSecondary">
-                            {formatTimestamp(trace.timestamp)}
-                          </Typography>
-                        </Box>
-                        <Chip
-                          label={trace.status}
-                          color={getStatusColor(trace.status)}
-                          size="small"
-                          sx={{ mr: 1 }}
-                        />
-                        {trace.responseTime && (
-                          <Typography variant="caption" sx={{ minWidth: 60 }}>
-                            {formatDuration(trace.responseTime)}
-                          </Typography>
-                        )}
-                      </Box>
-                    ))}
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        </>
-      )}
-    </Grid>
-  );
-
-  const exportTraces = () => {
-    const dataStr = JSON.stringify(traces, null, 2);
-    const dataUri =
-      "data:application/json;charset=utf-8," + encodeURIComponent(dataStr);
-
-    const exportFileDefaultName = `traces_${
-      new Date().toISOString().split("T")[0]
-    }.json`;
-
-    const linkElement = document.createElement("a");
-    linkElement.setAttribute("href", dataUri);
-    linkElement.setAttribute("download", exportFileDefaultName);
-    linkElement.click();
   };
 
   const filteredTraces = traces.filter((trace) => {
@@ -445,308 +206,195 @@ const RequestTracker = () => {
     return true;
   });
 
-  // Group traces by request ID to show request/response pairs
   const groupedTraces = {};
   filteredTraces.forEach((trace) => {
-    if (!groupedTraces[trace.requestId]) {
-      groupedTraces[trace.requestId] = [];
-    }
+    if (!groupedTraces[trace.requestId]) groupedTraces[trace.requestId] = [];
     groupedTraces[trace.requestId].push(trace);
   });
 
+  const openDrawer = (group) => {
+    setSelectedTraceGroup(group);
+    setDrawerOpen(true);
+  };
+
+  const DrawerContent = () => {
+    if (!selectedTraceGroup) return null;
+    const startTrace = selectedTraceGroup.find((t) => t.type === "REQUEST_START");
+    const endTrace = selectedTraceGroup.find((t) => t.type === "REQUEST_COMPLETE");
+
+    return (
+      <Box sx={{ p: 3, width: { xs: "100%", sm: 400 } }}>
+        <Typography variant="h6" gutterBottom>
+          Request Details
+        </Typography>
+        {startTrace && (
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="subtitle2">Started:</Typography>
+            <Typography variant="body2" gutterBottom>
+              {formatTimestamp(startTrace.timestamp)}
+            </Typography>
+            {startTrace.method && (
+              <Chip
+                icon={getMethodIcon(startTrace.method)}
+                label={startTrace.method}
+                color={getMethodColor(startTrace.method)}
+                size="small"
+                sx={{ mb: 1 }}
+              />
+            )}
+            <Typography variant="body2" sx={{ wordBreak: "break-all" }}>
+              {startTrace.url}
+            </Typography>
+            {startTrace.headers && (
+              <Accordion sx={{ mt: 1 }} disableGutters>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography variant="caption">Request Headers</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <pre style={{ fontSize: 11 }}>
+                    {JSON.stringify(startTrace.headers, null, 2)}
+                  </pre>
+                </AccordionDetails>
+              </Accordion>
+            )}
+            {startTrace.body && (
+              <Accordion sx={{ mt: 1 }} disableGutters>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography variant="caption">Request Body</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <pre style={{ fontSize: 11 }}>
+                    {typeof startTrace.body === "string"
+                      ? startTrace.body
+                      : JSON.stringify(startTrace.body, null, 2)}
+                  </pre>
+                </AccordionDetails>
+              </Accordion>
+            )}
+          </Box>
+        )}
+        {endTrace && (
+          <Box>
+            <Typography variant="h6" gutterBottom>
+              Response Details
+            </Typography>
+            <Typography variant="body2" gutterBottom>
+              Completed: {formatTimestamp(endTrace.timestamp)}
+            </Typography>
+            <Typography variant="body2" gutterBottom>
+              Status: {endTrace.statusCode} {endTrace.statusText}
+            </Typography>
+            {endTrace.responseHeaders && (
+              <Accordion sx={{ mt: 1 }} disableGutters>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography variant="caption">Response Headers</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <pre style={{ fontSize: 11 }}>
+                    {JSON.stringify(endTrace.responseHeaders, null, 2)}
+                  </pre>
+                </AccordionDetails>
+              </Accordion>
+            )}
+            {endTrace.responseBody && (
+              <Accordion sx={{ mt: 1 }} disableGutters>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography variant="caption">Response Body</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <pre style={{ fontSize: 11 }}>
+                    {typeof endTrace.responseBody === "string"
+                      ? endTrace.responseBody
+                      : JSON.stringify(endTrace.responseBody, null, 2)}
+                  </pre>
+                </AccordionDetails>
+              </Accordion>
+            )}
+            {endTrace.error && (
+              <Accordion sx={{ mt: 1 }} disableGutters>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography variant="caption" color="error">
+                    Error Details
+                  </Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <pre style={{ fontSize: 11, color: "red" }}>
+                    {JSON.stringify(endTrace.error, null, 2)}
+                  </pre>
+                </AccordionDetails>
+              </Accordion>
+            )}
+          </Box>
+        )}
+      </Box>
+    );
+  };
+
   const TracesTab = () => (
     <Box sx={{ width: "100%", overflow: "hidden" }}>
-      <TableContainer component={Paper} sx={{ 
-        bgcolor: "#fff", 
-        maxHeight: "70vh",
-        maxWidth: "100vw",
-        overflow: "auto",
-        width: "100%"
-      }}>
-        <Table stickyHeader size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
+      <TableContainer
+        component={Paper}
+        sx={{ 
+          bgcolor: "#fff", 
+          maxHeight: "70vh", 
+          overflow: "auto",
+          border: "1px solid #e0e0e0"
+        }}
+      >
+        <Table stickyHeader size="small" sx={{ 
+          tableLayout: "fixed",
+          "& .MuiTableCell-root": {
+            border: "1px solid #e0e0e0"
+          }
+        }}>
           <TableHead>
             <TableRow>
-              <TableCell sx={{ width: "15%" }}>Time</TableCell>
-              <TableCell sx={{ width: "10%" }}>Method</TableCell>
-              <TableCell sx={{ width: "35%" }}>URL</TableCell>
-              <TableCell sx={{ width: "10%" }}>Status</TableCell>
-              <TableCell sx={{ width: "30%" }}>Details</TableCell>
+              <TableCell sx={{ width: 140, fontWeight: "bold" }}>Time</TableCell>
+              <TableCell sx={{ width: 100, textAlign: "center", fontWeight: "bold" }}>Method</TableCell>
+              <TableCell sx={{ fontWeight: "bold" }}>URL</TableCell>
+              <TableCell sx={{ width: 100, textAlign: "center", fontWeight: "bold" }}>Status</TableCell>
+              <TableCell sx={{ width: 80, textAlign: "center", fontWeight: "bold" }}>Details</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {Object.entries(groupedTraces).map(([requestId, traces]) => {
-              const startTrace = traces.find((t) => t.type === "REQUEST_START");
-              const endTrace = traces.find(
-                (t) => t.type === "REQUEST_COMPLETE"
-              );
+            {Object.entries(groupedTraces).map(([requestId, group]) => {
+              const startTrace = group.find((t) => t.type === "REQUEST_START");
+              const endTrace = group.find((t) => t.type === "REQUEST_COMPLETE");
               const displayTrace = endTrace || startTrace;
-
               if (!displayTrace) return null;
-
               return (
-                <TableRow
-                  key={requestId}
-                  sx={{
-                    bgcolor: endTrace
-                      ? endTrace.status === "SUCCESS"
-                        ? "transparent" // Remove green background
-                        : "error.light"
-                      : "warning.light",
-                    opacity: endTrace ? 1 : 0.7,
-                  }}
-                >
-                  <TableCell>
-                    <Typography
-                      variant="caption"
-                      sx={{ fontFamily: "monospace" }}
-                    >
-                      {formatTimestamp(displayTrace.timestamp)}
-                    </Typography>
+                <TableRow key={requestId} sx={{ opacity: endTrace ? 1 : 0.7 }}>
+                  <TableCell sx={{ fontSize: "0.75rem", fontFamily: "monospace" }}>
+                    {formatTimestamp(displayTrace.timestamp)}
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={{ textAlign: "center" }}>
                     <Chip
                       icon={getMethodIcon(displayTrace.method)}
                       label={displayTrace.method || "N/A"}
                       color={getMethodColor(displayTrace.method)}
                       size="small"
+                      sx={{ minWidth: 70, fontSize: "0.7rem" }}
                     />
                   </TableCell>
                   <TableCell>
-                    <Tooltip title={displayTrace.url} arrow placement="top">
-                      <Typography
-                        variant="body2"
-                        sx={{
-                          maxWidth: 300,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          cursor: "help",
-                        }}
-                      >
-                        {displayTrace.url}
-                      </Typography>
-                    </Tooltip>
+                    <Typography variant="body2" sx={{ wordBreak: "break-all" }}>
+                      {displayTrace.url}
+                    </Typography>
                   </TableCell>
-
-                  <TableCell>
+                  <TableCell sx={{ textAlign: "center" }}>
                     <Chip
                       label={displayTrace.status}
                       color={getStatusColor(displayTrace.status)}
                       size="small"
+                      sx={{ minWidth: 70, fontSize: "0.7rem" }}
                     />
                   </TableCell>
-
-                  <TableCell>
-                    <Accordion 
-                      sx={{ boxShadow: "none" }}
-                      disableGutters
-                      expanded={expandedAccordions[`main-${requestId}`] || false}
-                      onChange={handleAccordionChange(`main-${requestId}`)}
-                    >
-                      <AccordionSummary
-                        expandIcon={<ExpandMoreIcon />}
-                        sx={{ minHeight: "auto", p: 0 }}
-                      >
-                        <Typography variant="caption">View</Typography>
-                      </AccordionSummary>
-                      <AccordionDetails sx={{ p: 2, maxWidth: "100%", overflow: "hidden" }}>
-                        <Box>
-                          
-
-                          {startTrace && (
-                            <Box sx={{ mb: 2 }}>
-                              <Typography variant="subtitle2" color="primary">
-                                Request Details:
-                              </Typography>
-                              <Typography variant="body2">
-                                Started: {formatTimestamp(startTrace.timestamp)}
-                              </Typography>
-                              {startTrace.headers && (
-                                <Accordion 
-                                  sx={{ mt: 1 }}
-                                  disableGutters
-                                  expanded={expandedAccordions[`req-headers-${requestId}`] || false}
-                                  onChange={handleAccordionChange(`req-headers-${requestId}`)}
-                                >
-                                  <AccordionSummary
-                                    expandIcon={<ExpandMoreIcon />}
-                                  >
-                                    <Typography variant="caption">
-                                      Request Headers
-                                    </Typography>
-                                  </AccordionSummary>
-                                  <AccordionDetails>
-                                    <pre
-                                      style={{
-                                        fontSize: "11px",
-                                        overflow: "auto",
-                                        maxHeight: "150px",
-                                        wordWrap: "break-word",
-                                        whiteSpace: "pre-wrap"
-                                      }}
-                                    >
-                                      {JSON.stringify(
-                                        startTrace.headers,
-                                        null,
-                                        2
-                                      )}
-                                    </pre>
-                                  </AccordionDetails>
-                                </Accordion>
-                              )}
-                              {startTrace.body && (
-                                <Accordion 
-                                  sx={{ mt: 1 }}
-                                  disableGutters
-                                  expanded={expandedAccordions[`req-body-${requestId}`] || false}
-                                  onChange={handleAccordionChange(`req-body-${requestId}`)}
-                                >
-                                  <AccordionSummary
-                                    expandIcon={<ExpandMoreIcon />}
-                                  >
-                                    <Typography variant="caption">
-                                      Request Body
-                                    </Typography>
-                                  </AccordionSummary>
-                                  <AccordionDetails>
-                                    <pre
-                                      style={{
-                                        fontSize: "11px",
-                                        overflow: "auto",
-                                        maxHeight: "200px",
-                                        wordWrap: "break-word",
-                                        whiteSpace: "pre-wrap"
-                                      }}
-                                    >
-                                      {typeof startTrace.body === "string"
-                                        ? startTrace.body
-                                        : JSON.stringify(
-                                            startTrace.body,
-                                            null,
-                                            2
-                                          )}
-                                    </pre>
-                                  </AccordionDetails>
-                                </Accordion>
-                              )}
-                            </Box>
-                          )}
-
-                          {endTrace && (
-                            <Box>
-                              <Typography variant="subtitle2" color="secondary">
-                                Response Details:
-                              </Typography>
-                              <Typography variant="body2">
-                                Completed: {formatTimestamp(endTrace.timestamp)}
-                              </Typography>
-                              <Typography variant="body2">
-                                Status: {endTrace.statusCode}{" "}
-                                {endTrace.statusText}
-                              </Typography>
-                              {endTrace.responseHeaders && (
-                                <Accordion 
-                                  sx={{ mt: 1 }}
-                                  disableGutters
-                                  expanded={expandedAccordions[`res-headers-${requestId}`] || false}
-                                  onChange={handleAccordionChange(`res-headers-${requestId}`)}
-                                >
-                                  <AccordionSummary
-                                    expandIcon={<ExpandMoreIcon />}
-                                  >
-                                    <Typography variant="caption">
-                                      Response Headers
-                                    </Typography>
-                                  </AccordionSummary>
-                                  <AccordionDetails>
-                                    <pre
-                                      style={{
-                                        fontSize: "11px",
-                                        overflow: "auto",
-                                        maxHeight: "150px",
-                                        wordWrap: "break-word",
-                                        whiteSpace: "pre-wrap"
-                                      }}
-                                    >
-                                      {JSON.stringify(
-                                        endTrace.responseHeaders,
-                                        null,
-                                        2
-                                      )}
-                                    </pre>
-                                  </AccordionDetails>
-                                </Accordion>
-                              )}
-                              {endTrace.responseBody && (
-                                <Accordion 
-                                  sx={{ mt: 1 }}
-                                  disableGutters
-                                  expanded={expandedAccordions[`res-body-${requestId}`] || false}
-                                  onChange={handleAccordionChange(`res-body-${requestId}`)}
-                                >
-                                  <AccordionSummary
-                                    expandIcon={<ExpandMoreIcon />}
-                                  >
-                                    <Typography variant="caption">
-                                      Response Body
-                                    </Typography>
-                                  </AccordionSummary>
-                                  <AccordionDetails>
-                                    <pre
-                                      style={{
-                                        fontSize: "11px",
-                                        overflow: "auto",
-                                        maxHeight: "300px",
-                                        wordWrap: "break-word",
-                                        whiteSpace: "pre-wrap"
-                                      }}
-                                    >
-                                      {typeof endTrace.responseBody === "string"
-                                        ? endTrace.responseBody
-                                        : JSON.stringify(
-                                            endTrace.responseBody,
-                                            null,
-                                            2
-                                          )}
-                                    </pre>
-                                  </AccordionDetails>
-                                </Accordion>
-                              )}
-                              {endTrace.error && (
-                                <Accordion 
-                                  sx={{ mt: 1 }}
-                                  disableGutters
-                                  expanded={expandedAccordions[`error-${requestId}`] || false}
-                                  onChange={handleAccordionChange(`error-${requestId}`)}
-                                >
-                                  <AccordionSummary
-                                    expandIcon={<ExpandMoreIcon />}
-                                  >
-                                    <Typography variant="caption" color="error">
-                                      Error Details
-                                    </Typography>
-                                  </AccordionSummary>
-                                  <AccordionDetails>
-                                    <pre
-                                      style={{
-                                        fontSize: "11px",
-                                        overflow: "auto",
-                                        maxHeight: "200px",
-                                        color: "red",
-                                        wordWrap: "break-word",
-                                        whiteSpace: "pre-wrap"
-                                      }}
-                                    >
-                                      {JSON.stringify(endTrace.error, null, 2)}
-                                    </pre>
-                                  </AccordionDetails>
-                                </Accordion>
-                              )}
-                            </Box>
-                          )}
-                        </Box>
-                      </AccordionDetails>
-                    </Accordion>
+                  <TableCell sx={{ textAlign: "center" }}>
+                    <Tooltip title="View details">
+                      <IconButton onClick={() => openDrawer(group)} size="small">
+                        <VisibilityIcon />
+                      </IconButton>
+                    </Tooltip>
                   </TableCell>
                 </TableRow>
               );
@@ -754,404 +402,28 @@ const RequestTracker = () => {
           </TableBody>
         </Table>
       </TableContainer>
+
+      <Drawer
+        anchor="right"
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        transitionDuration={400}
+      >
+        <DrawerContent />
+      </Drawer>
     </Box>
   );
 
-  const AnalyticsTab = () => (
-    <Grid container spacing={3}>
-      {analytics && (
-        <>
-          <Grid item xs={12} md={3}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Total Requests
-                </Typography>
-                <Typography variant="h3" color="primary">
-                  {analytics.totalRequests}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} md={3}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Success Rate
-                </Typography>
-                <Typography variant="h3" color="success.main">
-                  {analytics.totalRequests > 0
-                    ? `${Math.round(
-                        (analytics.successfulRequests /
-                          analytics.totalRequests) *
-                          100
-                      )}%`
-                    : "0%"}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} md={3}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Failed Requests
-                </Typography>
-                <Typography variant="h3" color="error.main">
-                  {analytics.failedRequests}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} md={3}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Avg Response Time
-                </Typography>
-                <Typography variant="h3" color="info.main">
-                  {formatDuration(analytics.averageResponseTime)}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Requests by Status
-                </Typography>
-                {Object.entries(analytics.requestsByStatus).map(
-                  ([status, count]) => (
-                    <Box
-                      key={status}
-                      sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        mb: 1,
-                      }}
-                    >
-                      <Chip
-                        label={status}
-                        color={getStatusColor(status)}
-                        size="small"
-                      />
-                      <Typography variant="body2">{count}</Typography>
-                    </Box>
-                  )
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Timeline
-                </Typography>
-                <Box sx={{ maxHeight: 300, overflow: "auto" }}>
-                  {analytics.timeline.slice(0, 10).map((event, index) => (
-                    <Box
-                      key={index}
-                      sx={{ display: "flex", alignItems: "center", mb: 1 }}
-                    >
-                      <Typography variant="caption" sx={{ minWidth: 100 }}>
-                        {formatTimestamp(event.time)}
-                      </Typography>
-                      <Chip
-                        label={event.status}
-                        color={getStatusColor(event.status)}
-                        size="small"
-                        sx={{ mx: 1 }}
-                      />
-                      <Typography variant="body2" sx={{ flexGrow: 1 }}>
-                        {event.message}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        </>
-      )}
-    </Grid>
-  );
-  const TracesTabDetailed = () => (
-    <TableContainer component={Paper}>
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Timestamp</TableCell>
-            <TableCell>Type</TableCell>
-            <TableCell>Method</TableCell>
-            <TableCell>URL</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell>Response Time</TableCell>
-            <TableCell>Size</TableCell>
-            <TableCell>Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {filteredTraces.map((trace) => (
-            <TableRow key={trace.id}>
-              <TableCell>
-                <Typography variant="caption">
-                  {formatTimestamp(trace.timestamp)}
-                </Typography>
-              </TableCell>
-              <TableCell>
-                <Chip label={trace.type} size="small" />
-              </TableCell>
-              <TableCell>
-                {trace.method && (
-                  <Chip
-                    label={trace.method}
-                    color={getMethodColor(trace.method)}
-                    size="small"
-                  />
-                )}
-              </TableCell>
-              <TableCell>
-                <Typography
-                  variant="body2"
-                  sx={{
-                    maxWidth: 200,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {trace.url}
-                </Typography>
-              </TableCell>
-              <TableCell>
-                <Chip
-                  label={trace.status}
-                  color={getStatusColor(trace.status)}
-                  size="small"
-                />
-              </TableCell>
-              <TableCell>
-                {trace.responseTime && formatDuration(trace.responseTime)}
-              </TableCell>
-              <TableCell>
-                {trace.responseSize && formatBytes(trace.responseSize)}
-              </TableCell>
-              <TableCell>
-                <Accordion>
-                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                    <Typography variant="caption">Details</Typography>
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    <Box>
-                      <Typography variant="subtitle2" gutterBottom>
-                        Request ID:
-                      </Typography>
-                      <Typography
-                        variant="body2"
-                        sx={{ mb: 2, fontFamily: "monospace" }}
-                      >
-                        {trace.requestId}
-                      </Typography>
-
-                      {trace.headers && (
-                        <>
-                          <Typography variant="subtitle2" gutterBottom>
-                            Headers:
-                          </Typography>
-                          <pre
-                            style={{
-                              fontSize: "12px",
-                              overflow: "auto",
-                              maxHeight: "200px",
-                            }}
-                          >
-                            {JSON.stringify(trace.headers, null, 2)}
-                          </pre>
-                        </>
-                      )}
-
-                      {trace.body && (
-                        <>
-                          <Typography variant="subtitle2" gutterBottom>
-                            Body:
-                          </Typography>
-                          <pre
-                            style={{
-                              fontSize: "12px",
-                              overflow: "auto",
-                              maxHeight: "300px",
-                            }}
-                          >
-                            {typeof trace.body === "string"
-                              ? trace.body
-                              : JSON.stringify(trace.body, null, 2)}
-                          </pre>
-                        </>
-                      )}
-
-                      {trace.error && (
-                        <>
-                          <Typography variant="subtitle2" gutterBottom>
-                            Error:
-                          </Typography>
-                          <pre
-                            style={{
-                              fontSize: "12px",
-                              overflow: "auto",
-                              maxHeight: "200px",
-                              color: "red",
-                            }}
-                          >
-                            {JSON.stringify(trace.error, null, 2)}
-                          </pre>
-                        </>
-                      )}
-                    </Box>
-                  </AccordionDetails>
-                </Accordion>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
-  );
-
   return (
-    <Box sx={{ p: 3 }}>
-      <Box
-        sx={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          mb: 3,
-        }}
-      >
-        <Box>
-          {/* <Tooltip title="Filter">
-            <IconButton onClick={() => setFilterDialogOpen(true)}>
-              <FilterIcon />
-            </IconButton>
-          </Tooltip> */}
-          {/* <Tooltip title="Export">
-            <IconButton onClick={exportTraces}>
-              <DownloadIcon />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Refresh">
-            <IconButton onClick={handleRefresh} disabled={loading}>
-              {loading ? <CircularProgress size={24} /> : <RefreshIcon />}
-            </IconButton>
-          </Tooltip> */}
-        </Box>
-      </Box>
-
+    <Box sx={{ p: 2 }}>
+      
       {error && (
         <Alert severity="error" sx={{ mb: 3 }}>
           {error}
         </Alert>
       )}
 
-      <Tabs value={currentTab} onChange={handleTabChange} sx={{ mb: 3 }}>
-        {/* <Tab icon={<AnalyticsIcon />} label="Analytics" /> */}
-        {/* <Tab icon={<HttpIcon />} label="Methods" /> */}
-        {/* <Tab icon={<TimelineIcon />} label={`Traces`} /> */}
-      </Tabs>
-
-      {currentTab === 0 && <AnalyticsTab />}
-      {currentTab === 1 && <MethodAnalyticsTab />}
       {currentTab === 2 && <TracesTab />}
-
-      {/* Filter Dialog */}
-      <Dialog
-        open={filterDialogOpen}
-        onClose={() => {}} // Prevent auto-close when clicking outside
-        maxWidth="sm"
-        fullWidth
-        disableEscapeKeyDown // Prevent closing with Escape key
-      >
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          Filter Traces
-          <IconButton 
-            onClick={() => setFilterDialogOpen(false)}
-            size="small"
-            sx={{ color: 'grey.500' }}
-          >
-            <ClearIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={4}>
-              <FormControl fullWidth>
-                <InputLabel>Status</InputLabel>
-                <Select
-                  value={filters.status}
-                  label="Status"
-                  onChange={(e) =>
-                    setFilters({ ...filters, status: e.target.value })
-                  }
-                >
-                  <MenuItem value="">All</MenuItem>
-                  <MenuItem value="SUCCESS">Success</MenuItem>
-                  <MenuItem value="ERROR">Error</MenuItem>
-                  <MenuItem value="PENDING">Pending</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={4}>
-              <FormControl fullWidth>
-                <InputLabel>Type</InputLabel>
-                <Select
-                  value={filters.type}
-                  label="Type"
-                  onChange={(e) =>
-                    setFilters({ ...filters, type: e.target.value })
-                  }
-                >
-                  <MenuItem value="">All</MenuItem>
-                  <MenuItem value="REQUEST_START">Request Start</MenuItem>
-                  <MenuItem value="REQUEST_COMPLETE">Request Complete</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={4}>
-              <FormControl fullWidth>
-                <InputLabel>Method</InputLabel>
-                <Select
-                  value={filters.method}
-                  label="Method"
-                  onChange={(e) =>
-                    setFilters({ ...filters, method: e.target.value })
-                  }
-                >
-                  <MenuItem value="">All</MenuItem>
-                  <MenuItem value="GET">GET</MenuItem>
-                  <MenuItem value="POST">POST</MenuItem>
-                  <MenuItem value="PUT">PUT</MenuItem>
-                  <MenuItem value="DELETE">DELETE</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button
-            onClick={() => setFilters({ status: "", type: "", method: "" })}
-          >
-            Clear
-          </Button>
-          <Button
-            onClick={() => setFilterDialogOpen(false)}
-            variant="contained"
-          >
-            Apply
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 };
