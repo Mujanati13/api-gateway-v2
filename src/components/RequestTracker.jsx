@@ -35,6 +35,8 @@ import {
   Badge,
   LinearProgress,
   Drawer,
+  Switch,
+  FormControlLabel,
 } from "@mui/material";
 import {
   ExpandMore as ExpandMoreIcon,
@@ -52,8 +54,26 @@ import {
 } from "@mui/icons-material";
 import { httpInterceptor } from "../services/HTTPInterceptor";
 import { traceService } from "../services/FirebaseTraceService";
+import axios from 'axios';
+
+// Environment Configuration
+const ENV_CONFIG = {
+  DEV: {
+    apiUrl: "https://api.stage.kautionsfrei.de",
+    name: "Development"
+  },
+  PROD: {
+    apiUrl: "https://api.kautionsfrei.de", // Replace with your actual prod URL
+    name: "Production"
+  }
+};
+
+// Configuration toggles
+const FIREBASE_ENABLED = true; // Set to false to disable Firebase functions
+const CURRENT_ENV = "PROD"; // Switch between "DEV" and "PROD"
 
 const RequestTracker = () => {
+  // ...existing state...
   const [traces, setTraces] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [methodStats, setMethodStats] = useState(null);
@@ -68,12 +88,34 @@ const RequestTracker = () => {
   });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedTraceGroup, setSelectedTraceGroup] = useState(null);
+  const [currentEnv, setCurrentEnv] = useState(CURRENT_ENV);
+  const [firebaseEnabled, setFirebaseEnabled] = useState(FIREBASE_ENABLED);
+
+  // Set initial axios baseURL
+  useEffect(() => {
+    axios.defaults.baseURL = ENV_CONFIG[currentEnv].apiUrl;
+  }, []);
+
+  // Update axios baseURL when environment changes
+  useEffect(() => {
+    axios.defaults.baseURL = ENV_CONFIG[currentEnv].apiUrl;
+    console.log(`🔄 Environment switched to ${currentEnv}: ${ENV_CONFIG[currentEnv].apiUrl}`);
+    
+    // Refresh data with new environment
+    loadTraces();
+    loadAnalytics();
+    if (firebaseEnabled) {
+      loadMethodStats();
+    }
+  }, [currentEnv]);
 
   useEffect(() => {
     loadTraces();
     loadAnalytics();
-    loadMethodStats();
-  }, []);
+    if (firebaseEnabled) {
+      loadMethodStats();
+    }
+  }, [firebaseEnabled]);
 
   const loadTraces = async () => {
     try {
@@ -110,6 +152,20 @@ const RequestTracker = () => {
   };
 
   const loadMethodStats = async () => {
+    if (!firebaseEnabled) {
+      console.log("Firebase is disabled - skipping method stats");
+      setMethodStats({
+        totalRequests: 0,
+        byMethod: {},
+        responseTimeStats: {
+          average: 0,
+          min: 0,
+          max: 0,
+        },
+      });
+      return;
+    }
+
     try {
       const stats = await traceService.getMethodStatistics();
       setMethodStats(stats);
@@ -130,7 +186,9 @@ const RequestTracker = () => {
   const handleRefresh = () => {
     loadTraces();
     loadAnalytics();
-    loadMethodStats();
+    if (firebaseEnabled) {
+      loadMethodStats();
+    }
   };
 
   const handleTabChange = (event, newValue) => setCurrentTab(newValue);
@@ -416,6 +474,42 @@ const RequestTracker = () => {
 
   return (
     <Box sx={{ p: 2 }}>
+      {/* Configuration Controls */}
+      {/* <Box sx={{ 
+        display: "flex", 
+        justifyContent: "space-between", 
+        alignItems: "center", 
+        mb: 3,
+        p: 2,
+        bgcolor: "grey.50",
+        borderRadius: 1,
+        border: "1px solid #e0e0e0"
+      }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
+          <Box>
+            <Typography variant="subtitle2" gutterBottom>
+              Firebase Functions
+            </Typography>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={firebaseEnabled}
+                  onChange={(e) => setFirebaseEnabled(e.target.checked)}
+                  color="primary"
+                />
+              }
+              label={firebaseEnabled ? "Enabled" : "Disabled"}
+            />
+          </Box>
+        </Box>
+
+        <Box sx={{ textAlign: "right" }}>
+          <br />
+          <Typography variant="caption" color="textSecondary">
+            Firebase: {firebaseEnabled ? "Active" : "Inactive"}
+          </Typography>
+        </Box>
+      </Box> */}
       
       {error && (
         <Alert severity="error" sx={{ mb: 3 }}>

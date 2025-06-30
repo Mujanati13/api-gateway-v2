@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import {
   Container,
@@ -20,7 +20,11 @@ import {
   FormControlLabel,
   Chip,
   Fab,
-  LinearProgress
+  LinearProgress,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
@@ -30,6 +34,18 @@ import TimerIcon from "@mui/icons-material/Timer";
 import { useTheme } from "@mui/material/styles";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { httpInterceptor } from "../services/HTTPInterceptor";
+
+// Environment Configuration (same as RequestTracker)
+const ENV_CONFIG = {
+  DEV: {
+    apiUrl: "https://api.stage.kautionsfrei.de",
+    name: "Development"
+  },
+  PROD: {
+    apiUrl: "https://api.kautionsfrei.de",
+    name: "Production"
+  }
+};
 
 // Sample test data for simulation based on the provided example
 const testData = {
@@ -151,6 +167,7 @@ const ResponseSection = ({ title, data }) => {
 
 function Home() {
   const [env, setEnv] = useState("real"); // "real" or "test"
+  const [apiEnv, setApiEnv] = useState("PROD"); // "DEV" or "PROD" for API environment
   const [token, setToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -172,6 +189,12 @@ function Home() {
   // Create a ref for the Kaution section.
   const kautionSectionRef = useRef(null);
 
+  // Set initial axios baseURL and update when API environment changes
+  useEffect(() => {
+    axios.defaults.baseURL = ENV_CONFIG[apiEnv].apiUrl;
+    console.log(`🔄 API Environment switched to ${apiEnv}: ${ENV_CONFIG[apiEnv].apiUrl}`);
+  }, [apiEnv]);
+
   // Helper function to add trace messages with timestamps including milliseconds.
   const addTrace = async (message) => {
     if (tracing) {
@@ -189,6 +212,8 @@ function Home() {
         await httpInterceptor.logCustomEvent('USER_TRACE', message, {
           timestamp: timestamp,
           environment: env,
+          apiEnvironment: apiEnv,
+          apiUrl: ENV_CONFIG[apiEnv].apiUrl,
           userGenerated: true
         });
       } catch (error) {
@@ -203,8 +228,8 @@ function Home() {
       const endTime = new Date();
       const duration = endTime - requestStartTime;
       const summary = success
-        ? `Request completed successfully in ${duration}ms - Environment: ${env}, Status: Success`
-        : `Request failed after ${duration}ms - Environment: ${env}, Status: Error`;
+        ? `Request completed successfully in ${duration}ms - Environment: ${env}, API: ${ENV_CONFIG[apiEnv].name}, Status: Success`
+        : `Request failed after ${duration}ms - Environment: ${env}, API: ${ENV_CONFIG[apiEnv].name}, Status: Error`;
       await addTrace(`SUMMARY: ${summary}`);
       
       // Log summary to Firebase
@@ -213,6 +238,8 @@ function Home() {
           duration,
           success,
           environment: env,
+          apiEnvironment: apiEnv,
+          apiUrl: ENV_CONFIG[apiEnv].apiUrl,
           timestamp: endTime.toISOString()
         });
       } catch (error) {
@@ -226,6 +253,11 @@ function Home() {
     if (newEnv !== null) {
       setEnv(newEnv);
     }
+  };
+
+  // Handle API environment change
+  const handleApiEnvChange = (event) => {
+    setApiEnv(event.target.value);
   };
 
   // Helper function to wait a specific amount of time
@@ -252,7 +284,7 @@ function Home() {
         await addTrace(`🔍 Checking application status for CID: ${cid} (attempt ${attempts}/${maxAttempts})`);
         
         const response = await axios.get(
-          `https://api.kautionsfrei.de/api/application/state/${cid}`
+          `/api/application/state/${cid}`
         );
         
         if (response.data) {
@@ -303,7 +335,7 @@ function Home() {
     
     try {
       const response = await axios.get(
-        `https://api.kautionsfrei.de/api/application/state/${cid}`
+        `/api/application/state/${cid}`
       );
       
       if (response.data) {
@@ -485,7 +517,7 @@ function Home() {
       // STEP 2: Submit data via POST request to create Bürgschaft
       await addTrace("🚀 STEP 2: POST request to create Bürgschaft starting...");
       const response = await axios.post(
-        "https://api.kautionsfrei.de/api/tenancies",
+        "/api/tenancies",
         mappedData
       );
   
@@ -548,7 +580,7 @@ function Home() {
           
           try {
             const statusResponse = await axios.get(
-              `https://api.kautionsfrei.de/api/application/state/${response.data.cid}`
+              `/api/application/state/${response.data.cid}`
             );
             
             if (statusResponse.data) {
@@ -1160,17 +1192,6 @@ function Home() {
       maxWidth="sm"
       sx={{ py: { xs: 2, md: 4 }, px: { xs: 2, md: 4 } }}
     >
-      <Typography variant="h4" align="center" gutterBottom>
-        Tenant Background Check
-      </Typography>
-      <Typography
-        variant="subtitle1"
-        align="center"
-        color="textSecondary"
-        gutterBottom
-      >
-        Enter your authentication token to check the protocol data.
-      </Typography>
       <Box
         sx={{
           display: "flex",
@@ -1181,21 +1202,55 @@ function Home() {
           gap: 2,
         }}
       >
-        <ToggleButtonGroup value={env} exclusive onChange={handleEnvChange}>
-          <ToggleButton value="real">Real Environment</ToggleButton>
-          {/* <ToggleButton value="test">Test Environment</ToggleButton> */}
-        </ToggleButtonGroup>
-        {/* 
-        <FormControlLabel
-          control={
-            <Switch
-              checked={tracing}
-              onChange={(e) => setTracing(e.target.checked)}
-              color="primary"
-            />
-          }
-          label="Enable tracing"
-        /> */}
+       
+        
+        {/* API Environment Selector */}
+        <FormControl size="small" sx={{ minWidth: 140 }}>
+          <InputLabel>API Environment</InputLabel>
+          <Select
+            value={apiEnv}
+            onChange={handleApiEnvChange}
+            label="API Environment"
+          >
+            <MenuItem value="DEV">
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Box sx={{ 
+                  width: 8, 
+                  height: 8, 
+                  borderRadius: "50%", 
+                  bgcolor: "orange" 
+                }} />
+                Development
+              </Box>
+            </MenuItem>
+            <MenuItem value="PROD">
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <Box sx={{ 
+                  width: 8, 
+                  height: 8, 
+                  borderRadius: "50%", 
+                  bgcolor: "green" 
+                }} />
+                Production
+              </Box>
+            </MenuItem>
+          </Select>
+        </FormControl>
+        
+        {/* Current API URL Display */}
+        <Chip 
+          label={`API: ${ENV_CONFIG[apiEnv].name}`}
+          color={apiEnv === "PROD" ? "success" : "warning"}
+          size="small"
+          variant="outlined"
+        />
+      </Box>
+      
+      {/* API URL Information */}
+      <Box sx={{ textAlign: "center", mb: 2 }}>
+        <Typography variant="caption" color="textSecondary">
+          Current API Endpoint: {ENV_CONFIG[apiEnv].apiUrl}
+        </Typography>
       </Box>
       <Card sx={{ my: 4 }}>
         <CardContent>
