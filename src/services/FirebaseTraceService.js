@@ -287,7 +287,13 @@ class FirebaseTraceService {
   async getCurrentSessionTraces() {
     // For now, just get recent traces instead of filtering by sessionId
     // to avoid compound index requirements
-    return await this.getTraces({ limitCount: 50 });
+    const traces = await this.getTraces({ limitCount: 50 });
+    
+    // Filter out CONNECTION_TEST traces
+    return traces.filter(trace => 
+      trace.type !== 'CONNECTION_TEST' && 
+      !(trace.message && trace.message.includes('Testing Firebase connection'))
+    );
   }
 
   /**
@@ -360,7 +366,11 @@ class FirebaseTraceService {
         }
       };
 
-      const completedRequests = traces.filter(trace => trace.type === 'REQUEST_COMPLETE');
+      const completedRequests = traces.filter(trace => 
+        trace.type === 'REQUEST_COMPLETE' &&
+        trace.type !== 'CONNECTION_TEST' &&
+        !(trace.message && trace.message.includes('Testing Firebase connection'))
+      );
       stats.totalRequests = completedRequests.length;
 
       completedRequests.forEach(trace => {
@@ -439,9 +449,15 @@ class FirebaseTraceService {
         timeline: []
       };
 
-      // Process traces safely
+      // Process traces safely, excluding CONNECTION_TEST traces
       traces.forEach(trace => {
         try {
+          // Skip CONNECTION_TEST traces
+          if (trace.type === 'CONNECTION_TEST' || 
+              (trace.message && trace.message.includes('Testing Firebase connection'))) {
+            return;
+          }
+          
           const { requestId, type, status, responseTime } = trace;
 
           // Group by request ID

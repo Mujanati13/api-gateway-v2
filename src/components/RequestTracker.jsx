@@ -258,17 +258,108 @@ const RequestTracker = () => {
   };
 
   const filteredTraces = traces.filter((trace) => {
+    // Filter out Testing Firebase connection traces
+    if (trace.type === 'CONNECTION_TEST' || 
+        (trace.message && trace.message.includes('Testing Firebase connection'))) {
+      return false;
+    }
+    
     if (filters.status && trace.status !== filters.status) return false;
     if (filters.type && trace.type !== filters.type) return false;
     if (filters.method && trace.method !== filters.method) return false;
     return true;
   });
 
-  const groupedTraces = {};
-  filteredTraces.forEach((trace) => {
-    if (!groupedTraces[trace.requestId]) groupedTraces[trace.requestId] = [];
-    groupedTraces[trace.requestId].push(trace);
-  });
+  // Group traces by cycles instead of just requestId
+  const groupTracesIntoCycles = (traces) => {
+    const cycles = {};
+    let cycleCounter = 1;
+    
+    // Sort traces by timestamp to process chronologically
+    const sortedTraces = [...traces].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    
+    // First pass: identify only the 3 specific step traces (only REQUEST_COMPLETE to avoid duplicates)
+    const cycleTraces = sortedTraces.filter((trace) => {
+      // Only include completed requests to avoid duplicating START and COMPLETE traces
+      if (trace.type !== 'REQUEST_COMPLETE') {
+        return false;
+      }
+      
+      const isProtocolDataRequest = trace.url && 
+        trace.url.includes('x-cite-web.de:5000/api/protocol/data/') && 
+        trace.method === 'GET';
+      
+      const isTenancySubmission = trace.url && 
+        trace.url.includes('/api/tenancies') && 
+        trace.method === 'POST';
+      
+      const isStatusCheck = trace.url && 
+        trace.url.includes('/api/application/state/') && 
+        trace.method === 'GET';
+      
+      // Only include traces that match our 3 specific steps
+      return isProtocolDataRequest || isTenancySubmission || isStatusCheck;
+    });
+    
+    // Second pass: group these filtered traces into cycles
+    let currentCycleId = null;
+    let currentCycleStep = 0; // 0: waiting for step 1, 1: waiting for step 2, 2: waiting for step 3
+    
+    cycleTraces.forEach((trace) => {
+      const isProtocolDataRequest = trace.url && 
+        trace.url.includes('x-cite-web.de:5000/api/protocol/data/') && 
+        trace.method === 'GET' && 
+        trace.type === 'REQUEST_COMPLETE';
+      
+      const isTenancySubmission = trace.url && 
+        trace.url.includes('/api/tenancies') && 
+        trace.method === 'POST' && 
+        trace.type === 'REQUEST_COMPLETE';
+      
+      const isStatusCheck = trace.url && 
+        trace.url.includes('/api/application/state/') && 
+        trace.method === 'GET' && 
+        trace.type === 'REQUEST_COMPLETE';
+      
+      // Start new cycle when we see step 1 (protocol data request)
+      if (isProtocolDataRequest && currentCycleStep === 0) {
+        currentCycleId = `cycle-${cycleCounter}`;
+        cycleCounter++;
+        currentCycleStep = 1;
+        
+        if (!cycles[currentCycleId]) {
+          cycles[currentCycleId] = [];
+        }
+        cycles[currentCycleId].push(trace);
+      }
+      // Add step 2 (tenancy submission) to current cycle
+      else if (isTenancySubmission && currentCycleStep === 1 && currentCycleId) {
+        cycles[currentCycleId].push(trace);
+        currentCycleStep = 2;
+      }
+      // Add step 3 (status check) to current cycle and complete it
+      else if (isStatusCheck && currentCycleStep === 2 && currentCycleId) {
+        cycles[currentCycleId].push(trace);
+        currentCycleStep = 0; // Reset for next cycle
+        currentCycleId = null;
+      }
+      // If trace doesn't fit the expected sequence, start a new cycle
+      else if (isProtocolDataRequest) {
+        currentCycleId = `cycle-${cycleCounter}`;
+        cycleCounter++;
+        currentCycleStep = 1;
+        
+        if (!cycles[currentCycleId]) {
+          cycles[currentCycleId] = [];
+        }
+        cycles[currentCycleId].push(trace);
+      }
+    });
+    
+    return cycles;
+  };
+
+  const groupedTraces = groupTracesIntoCycles(filteredTraces);
 
   const openDrawer = (group) => {
     setSelectedTraceGroup(group);
@@ -277,113 +368,139 @@ const RequestTracker = () => {
 
   const DrawerContent = () => {
     if (!selectedTraceGroup) return null;
-    const startTrace = selectedTraceGroup.find((t) => t.type === "REQUEST_START");
-    const endTrace = selectedTraceGroup.find((t) => t.type === "REQUEST_COMPLETE");
-
+    
+    // Sort traces within the selected cycle by timestamp
+    const sortedTraces = selectedTraceGroup.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    
     return (
-      <Box sx={{ p: 3, width: { xs: "100%", sm: 400 } }}>
+      <Box sx={{ p: 3, width: { xs: "100%", sm: 500 } }}>
         <Typography variant="h6" gutterBottom>
-          Request Details
+          Cycle Details ({sortedTraces.length} requests)
         </Typography>
-        {startTrace && (
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="subtitle2">Started:</Typography>
-            <Typography variant="body2" gutterBottom>
-              {formatTimestamp(startTrace.timestamp)}
-            </Typography>
-            {startTrace.method && (
-              <Chip
-                icon={getMethodIcon(startTrace.method)}
-                label={startTrace.method}
-                color={getMethodColor(startTrace.method)}
-                size="small"
-                sx={{ mb: 1 }}
-              />
-            )}
-            <Typography variant="body2" sx={{ wordBreak: "break-all" }}>
-              {startTrace.url}
-            </Typography>
-            {startTrace.headers && (
-              <Accordion sx={{ mt: 1 }} disableGutters>
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Typography variant="caption">Request Headers</Typography>
-                </AccordionSummary>
-                <AccordionDetails>
-                  <pre style={{ fontSize: 11 }}>
-                    {JSON.stringify(startTrace.headers, null, 2)}
-                  </pre>
-                </AccordionDetails>
-              </Accordion>
-            )}
-            {startTrace.body && (
-              <Accordion sx={{ mt: 1 }} disableGutters>
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Typography variant="caption">Request Body</Typography>
-                </AccordionSummary>
-                <AccordionDetails>
-                  <pre style={{ fontSize: 11 }}>
-                    {typeof startTrace.body === "string"
-                      ? startTrace.body
-                      : JSON.stringify(startTrace.body, null, 2)}
-                  </pre>
-                </AccordionDetails>
-              </Accordion>
-            )}
-          </Box>
-        )}
-        {endTrace && (
-          <Box>
-            <Typography variant="h6" gutterBottom>
-              Response Details
-            </Typography>
-            <Typography variant="body2" gutterBottom>
-              Completed: {formatTimestamp(endTrace.timestamp)}
-            </Typography>
-            <Typography variant="body2" gutterBottom>
-              Status: {endTrace.statusCode} {endTrace.statusText}
-            </Typography>
-            {endTrace.responseHeaders && (
-              <Accordion sx={{ mt: 1 }} disableGutters>
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Typography variant="caption">Response Headers</Typography>
-                </AccordionSummary>
-                <AccordionDetails>
-                  <pre style={{ fontSize: 11 }}>
-                    {JSON.stringify(endTrace.responseHeaders, null, 2)}
-                  </pre>
-                </AccordionDetails>
-              </Accordion>
-            )}
-            {endTrace.responseBody && (
-              <Accordion sx={{ mt: 1 }} disableGutters>
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Typography variant="caption">Response Body</Typography>
-                </AccordionSummary>
-                <AccordionDetails sx={{ maxHeight: "50vh", overflowY: "auto" }}>
-                  <pre style={{ fontSize: 11 }}>
-                    {typeof endTrace.responseBody === "string"
-                      ? endTrace.responseBody
-                      : JSON.stringify(endTrace.responseBody, null, 2)}
-                  </pre>
-                </AccordionDetails>
-              </Accordion>
-            )}
-            {endTrace.error && (
-              <Accordion sx={{ mt: 1 }} disableGutters>
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Typography variant="caption" color="error">
-                    Error Details
+        
+        {/* Cycle Timeline */}
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="subtitle2" gutterBottom>
+            Cycle Steps:
+          </Typography>
+          {sortedTraces.map((trace, index) => {
+            // Since we're only showing REQUEST_COMPLETE traces, all traces are completed requests
+            const isComplete = trace.type === "REQUEST_COMPLETE";
+            
+            // Identify cycle step
+            let stepLabel = `Step ${index + 1}`;
+            let stepType = 'Other';
+            
+            if (trace.url && trace.url.includes('x-cite-web.de:5000/api/protocol/data/') && trace.method === 'GET') {
+              stepType = '1. Protocol Data';
+              stepLabel = 'Protocol Data Request';
+            } else if (trace.url && trace.url.includes('/api/tenancies') && trace.method === 'POST') {
+              stepType = '2. Tenancy Submit';
+              stepLabel = 'Tenancy Submission';
+            } else if (trace.url && trace.url.includes('/api/application/state/') && trace.method === 'GET') {
+              stepType = '3. Status Check';
+              stepLabel = 'Status Check';
+            }
+            
+            return (
+              <Box key={`${trace.requestId}-${index}`} sx={{ mb: 2, pl: 2, borderLeft: "2px solid #e0e0e0" }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                  <Chip
+                    size="small"
+                    label={stepType}
+                    color={stepType.startsWith('1.') ? "primary" : stepType.startsWith('2.') ? "secondary" : stepType.startsWith('3.') ? "success" : "default"}
+                    sx={{ minWidth: 120, fontSize: "0.7rem" }}
+                  />
+                  {trace.method && (
+                    <Chip
+                      icon={getMethodIcon(trace.method)}
+                      label={trace.method}
+                      color={getMethodColor(trace.method)}
+                      size="small"
+                    />
+                  )}
+                  <Chip
+                    label={trace.status || trace.type}
+                    color={getStatusColor(trace.status)}
+                    size="small"
+                  />
+                  <Typography variant="caption" sx={{ fontFamily: "monospace" }}>
+                    {formatTimestamp(trace.timestamp)}
                   </Typography>
-                </AccordionSummary>
-                <AccordionDetails>
-                  <pre style={{ fontSize: 11, color: "red" }}>
-                    {JSON.stringify(endTrace.error, null, 2)}
-                  </pre>
-                </AccordionDetails>
-              </Accordion>
-            )}
-          </Box>
-        )}
+                </Box>
+                
+                <Typography variant="body2" sx={{ mb: 1, fontWeight: stepType !== 'Other' ? 'bold' : 'normal' }}>
+                  {stepLabel}
+                </Typography>
+                
+                <Typography variant="body2" sx={{ wordBreak: "break-all", mb: 1, fontSize: "0.8rem", color: "textSecondary" }}>
+                  {trace.url || trace.message || 'Event'}
+                </Typography>
+                
+                {(trace.responseTime) && (
+                  <Typography variant="caption" color="textSecondary">
+                    Response time: {trace.responseTime}ms
+                  </Typography>
+                )}
+                
+                {/* Expandable details for each request */}
+                <Accordion size="small" sx={{ mt: 1 }} disableGutters>
+                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                    <Typography variant="caption">Request Details</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    {trace.headers && (
+                      <Accordion sx={{ mt: 1 }} disableGutters>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                          <Typography variant="caption">
+                            Response Headers
+                          </Typography>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                          <pre style={{ fontSize: 10 }}>
+                            {JSON.stringify(trace.responseHeaders || trace.headers, null, 2)}
+                          </pre>
+                        </AccordionDetails>
+                      </Accordion>
+                    )}
+                    
+                    {trace.responseBody && (
+                      <Accordion sx={{ mt: 1 }} disableGutters>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                          <Typography variant="caption">
+                            Response Body
+                          </Typography>
+                        </AccordionSummary>
+                        <AccordionDetails sx={{ maxHeight: "30vh", overflowY: "auto" }}>
+                          <pre style={{ fontSize: 10 }}>
+                            {typeof trace.responseBody === "string"
+                              ? trace.responseBody
+                              : JSON.stringify(trace.responseBody, null, 2)}
+                          </pre>
+                        </AccordionDetails>
+                      </Accordion>
+                    )}
+                    
+                    {trace.error && (
+                      <Accordion sx={{ mt: 1 }} disableGutters>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                          <Typography variant="caption" color="error">
+                            Error Details
+                          </Typography>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                          <pre style={{ fontSize: 10, color: "red" }}>
+                            {JSON.stringify(trace.error, null, 2)}
+                          </pre>
+                        </AccordionDetails>
+                      </Accordion>
+                    )}
+                  </AccordionDetails>
+                </Accordion>
+              </Box>
+            );
+          })}
+        </Box>
       </Box>
     );
   };
@@ -407,49 +524,89 @@ const RequestTracker = () => {
         }}>
           <TableHead>
             <TableRow>
+              <TableCell sx={{ width: 120, fontWeight: "bold" }}>Cycle</TableCell>
               <TableCell sx={{ width: 140, fontWeight: "bold" }}>Time</TableCell>
-              <TableCell sx={{ width: 100, textAlign: "center", fontWeight: "bold" }}>Method</TableCell>
-              <TableCell sx={{ fontWeight: "bold" }}>URL</TableCell>
+              <TableCell sx={{ width: 80, textAlign: "center", fontWeight: "bold" }}>Requests</TableCell>
+              <TableCell sx={{ fontWeight: "bold" }}>Summary</TableCell>
               <TableCell sx={{ width: 100, textAlign: "center", fontWeight: "bold" }}>Status</TableCell>
               <TableCell sx={{ width: 80, textAlign: "center", fontWeight: "bold" }}>Details</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {Object.entries(groupedTraces).map(([requestId, group]) => {
-              const startTrace = group.find((t) => t.type === "REQUEST_START");
-              const endTrace = group.find((t) => t.type === "REQUEST_COMPLETE");
-              const displayTrace = endTrace || startTrace;
-              if (!displayTrace) return null;
+            {Object.entries(groupedTraces).map(([cycleId, cycleTraces]) => {
+              // Sort traces within cycle by timestamp
+              const sortedCycleTraces = cycleTraces.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+              const firstTrace = sortedCycleTraces[0];
+              const lastTrace = sortedCycleTraces[sortedCycleTraces.length - 1];
+              
+              // Determine cycle summary based on the 3-step pattern
+              const protocolDataRequests = sortedCycleTraces.filter(t => 
+                t.url && t.url.includes('x-cite-web.de:5000/api/protocol/data/') && t.method === 'GET'
+              );
+              const tenancySubmissions = sortedCycleTraces.filter(t => 
+                t.url && t.url.includes('/api/tenancies') && t.method === 'POST'
+              );
+              const statusChecks = sortedCycleTraces.filter(t => 
+                t.url && t.url.includes('/api/application/state/') && t.method === 'GET'
+              );
+              
+              let cycleSummary = '';
+              const steps = [];
+              if (protocolDataRequests.length > 0) steps.push('Protocol Data');
+              if (tenancySubmissions.length > 0) steps.push('Tenancy Submit');
+              if (statusChecks.length > 0) steps.push('Status Check');
+              
+              if (steps.length === 3) {
+                cycleSummary = 'Complete Cycle (3/3 steps)';
+              } else if (steps.length > 0) {
+                cycleSummary = `Partial Cycle (${steps.length}/3): ${steps.join(' → ')}`;
+              } else {
+                cycleSummary = 'Other requests';
+              }
+              
+              // Overall cycle status
+              const hasErrors = sortedCycleTraces.some(t => t.status === 'ERROR');
+              const allCompleted = sortedCycleTraces.every(t => t.status !== 'PENDING');
+              const cycleStatus = hasErrors ? 'ERROR' : allCompleted ? 'SUCCESS' : 'PENDING';
+              
               return (
-                <TableRow key={requestId} sx={{ opacity: endTrace ? 1 : 0.7 }}>
+                <TableRow key={cycleId} sx={{ opacity: allCompleted ? 1 : 0.7 }}>
+                  <TableCell>
+                    <Chip 
+                      label={cycleId.replace('cycle-', 'Cycle ')} 
+                      size="small" 
+                      color="primary" 
+                      variant="outlined"
+                      sx={{ fontSize: "0.7rem" }}
+                    />
+                  </TableCell>
                   <TableCell sx={{ fontSize: "0.75rem", fontFamily: "monospace" }}>
-                    {formatTimestamp(displayTrace.timestamp)}
+                    {formatTimestamp(firstTrace.timestamp)}
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>
                     <Chip
-                      icon={getMethodIcon(displayTrace.method)}
-                      label={displayTrace.method || "N/A"}
-                      color={getMethodColor(displayTrace.method)}
+                      label={sortedCycleTraces.length}
                       size="small"
-                      sx={{ minWidth: 70, fontSize: "0.7rem" }}
+                      color="default"
+                      sx={{ minWidth: 40, fontSize: "0.7rem" }}
                     />
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2" sx={{ wordBreak: "break-all" }}>
-                      {displayTrace.url}
+                    <Typography variant="body2" sx={{ fontSize: "0.8rem" }}>
+                      {cycleSummary || 'Mixed requests'}
                     </Typography>
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>
                     <Chip
-                      label={displayTrace.status}
-                      color={getStatusColor(displayTrace.status)}
+                      label={cycleStatus}
+                      color={getStatusColor(cycleStatus)}
                       size="small"
                       sx={{ minWidth: 70, fontSize: "0.7rem" }}
                     />
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>
-                    <Tooltip title="View details">
-                      <IconButton onClick={() => openDrawer(group)} size="small">
+                    <Tooltip title="View cycle details">
+                      <IconButton onClick={() => openDrawer(sortedCycleTraces)} size="small">
                         <VisibilityIcon />
                       </IconButton>
                     </Tooltip>
