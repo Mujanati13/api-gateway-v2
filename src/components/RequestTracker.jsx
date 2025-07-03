@@ -482,7 +482,7 @@ const RequestTracker = () => {
     const sortedTraces = selectedTraceGroup.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     
     return (
-      <Box sx={{ p: 3, width: { xs: "100%", sm: 500 } }}>
+      <Box  sx={{ p: 3, width: { xs: "100%", sm: 500 } , overflow:"hidden" }}>
         <Typography variant="h6" gutterBottom>
           Cycle Details ({sortedTraces.length} requests)
         </Typography>
@@ -615,12 +615,12 @@ const RequestTracker = () => {
   };
 
   const TracesTab = () => (
-    <Box sx={{ width: "100%", overflow: "hidden" }}>
+    <Box sx={{ width: "100%", height: "100%", overflow: "hidden" }}>
       <TableContainer
         component={Paper}
         sx={{ 
           bgcolor: "#fff", 
-          maxHeight: "70vh", 
+          height: "calc(100vh - 95px)", 
           overflow: "auto",
           border: "1px solid #e0e0e0"
         }}
@@ -734,7 +734,7 @@ const RequestTracker = () => {
                       {userDetails.landlordName && (
                         <>
                           <Typography variant="caption" sx={{ fontSize: "0.8rem", color: "success.main", fontWeight: "medium", display: "block", mb: 0.1 }}>
-                            🏠 {userDetails.landlordName}
+                            🔑 {userDetails.landlordName}
                           </Typography>
                           {userDetails.landlordAddress && (
                             <Typography variant="caption" sx={{ fontSize: "0.75rem", color: "success.light", display: "block", mb: 0.2 }}>
@@ -755,7 +755,7 @@ const RequestTracker = () => {
                           lineHeight: 1.2,
                           mb: 0.2
                         }}>
-                          🔑 {userDetails.token}
+                           {userDetails.token}
                         </Typography>
                       )}
 
