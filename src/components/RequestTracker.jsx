@@ -70,7 +70,7 @@ const ENV_CONFIG = {
 
 // Configuration toggles
 const FIREBASE_ENABLED = true; // Set to false to disable Firebase functions
-const CURRENT_ENV = "PROD"; // Switch between "DEV" and "PROD"
+const CURRENT_ENV = "DEV"; // Switch between "DEV" and "PROD" - Default to Development
 
 const RequestTracker = () => {
   // ...existing state...
@@ -257,6 +257,103 @@ const RequestTracker = () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
 
+  // Extract user details from cycle traces
+  const extractUserDetails = (cycleTraces) => {
+    let userInfo = {
+      name: '',
+      address: '',
+      token: '',
+      landlordName: '',
+      landlordAddress: ''
+    };
+
+    cycleTraces.forEach(trace => {
+      // Extract token from URL (protocol data request)
+      if (trace.url && trace.url.includes('x-cite-web.de:5000/api/protocol/data/')) {
+        const tokenMatch = trace.url.match(/\/api\/protocol\/data\/(.+)/);
+        if (tokenMatch) {
+          userInfo.token = tokenMatch[1]; // Show full token
+        }
+
+        // Extract user details from the first GET request response (X-cite protocol data)
+        if (trace.responseBody) {
+          try {
+            const responseData = typeof trace.responseBody === 'string' 
+              ? JSON.parse(trace.responseBody) 
+              : trace.responseBody;
+
+            // Extract tenant (Mieter) information from X-cite response
+            if (responseData.data && responseData.data.Mieter) {
+              const mieter = responseData.data.Mieter;
+              if (mieter.Vorname && mieter.Name) {
+                userInfo.name = `${mieter.Vorname} ${mieter.Name}`;
+              }
+              // Build address from Mieter data
+              const addressParts = [];
+              if (mieter.Strasse) addressParts.push(mieter.Strasse);
+              if (mieter.Hausnummer) addressParts.push(mieter.Hausnummer);
+              if (mieter.Plz && mieter.Ort) addressParts.push(`${mieter.Plz} ${mieter.Ort}`);
+              userInfo.address = addressParts.join(', ');
+            }
+
+            // Extract landlord (Vermieter) information from X-cite response
+            if (responseData.data && responseData.data.Vermieter) {
+              const vermieter = responseData.data.Vermieter;
+              if (vermieter.Vorname && vermieter.Name) {
+                userInfo.landlordName = `${vermieter.Vorname} ${vermieter.Name}`;
+              }
+              // Build landlord address
+              const landlordAddressParts = [];
+              if (vermieter.Strasse) landlordAddressParts.push(vermieter.Strasse);
+              if (vermieter.Hausnummer) landlordAddressParts.push(vermieter.Hausnummer);
+              if (vermieter.Plz && vermieter.Ort) landlordAddressParts.push(`${vermieter.Plz} ${vermieter.Ort}`);
+              userInfo.landlordAddress = landlordAddressParts.join(', ');
+            }
+          } catch (e) {
+            console.warn('Failed to parse X-cite protocol data response:', e);
+          }
+        }
+      }
+
+      // Also extract user details from tenancy submission response body
+      if (trace.responseBody && trace.url && trace.url.includes('/api/tenancies')) {
+        try {
+          const responseData = typeof trace.responseBody === 'string' 
+            ? JSON.parse(trace.responseBody) 
+            : trace.responseBody;
+
+          // Look for tenant information in KautionFrei response
+          if (responseData.tenant) {
+            const tenant = responseData.tenant;
+            if (tenant.firstName && tenant.name && !userInfo.name) {
+              userInfo.name = `${tenant.firstName} ${tenant.name}`;
+            }
+            if (tenant.address && !userInfo.address) {
+              const addr = tenant.address;
+              userInfo.address = `${addr.street || ''} ${addr.houseNumber || ''}, ${addr.zipCode || ''} ${addr.city || ''}`.trim();
+            }
+          }
+
+          // Look for landlord information in KautionFrei response
+          if (responseData.landlord) {
+            const landlord = responseData.landlord;
+            if (landlord.firstName && landlord.name && !userInfo.landlordName) {
+              userInfo.landlordName = `${landlord.firstName} ${landlord.name}`;
+            }
+            if (landlord.address && !userInfo.landlordAddress) {
+              const addr = landlord.address;
+              userInfo.landlordAddress = `${addr.street || ''} ${addr.houseNumber || ''}, ${addr.zipCode || ''} ${addr.city || ''}`.trim();
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to parse tenancy response:', e);
+        }
+      }
+    });
+
+    return userInfo;
+  };
+
   const filteredTraces = traces.filter((trace) => {
     // Filter out Testing Firebase connection traces
     if (trace.type === 'CONNECTION_TEST' || 
@@ -360,6 +457,18 @@ const RequestTracker = () => {
   };
 
   const groupedTraces = groupTracesIntoCycles(filteredTraces);
+
+  // Sort cycles by most recent first
+  const sortedGroupedTraces = Object.entries(groupedTraces)
+    .sort(([, tracesA], [, tracesB]) => {
+      const latestTimeA = Math.max(...tracesA.map(t => new Date(t.timestamp).getTime()));
+      const latestTimeB = Math.max(...tracesB.map(t => new Date(t.timestamp).getTime()));
+      return latestTimeB - latestTimeA; // Most recent first
+    })
+    .reduce((acc, [key, value]) => {
+      acc[key] = value;
+      return acc;
+    }, {});
 
   const openDrawer = (group) => {
     setSelectedTraceGroup(group);
@@ -517,27 +626,30 @@ const RequestTracker = () => {
         }}
       >
         <Table stickyHeader size="small" sx={{ 
-          tableLayout: "fixed",
+          width: "100%",
           "& .MuiTableCell-root": {
             border: "1px solid #e0e0e0"
           }
         }}>
           <TableHead>
             <TableRow>
-              <TableCell sx={{ width: 120, fontWeight: "bold" }}>Cycle</TableCell>
-              <TableCell sx={{ width: 140, fontWeight: "bold" }}>Time</TableCell>
-              <TableCell sx={{ width: 80, textAlign: "center", fontWeight: "bold" }}>Requests</TableCell>
+              <TableCell sx={{ width: 100, fontWeight: "bold", whiteSpace: "nowrap" }}>Cycle</TableCell>
+              <TableCell sx={{ width: 150, fontWeight: "bold", whiteSpace: "nowrap" }}>Time</TableCell>
+              <TableCell sx={{ width: 70, textAlign: "center", fontWeight: "bold", whiteSpace: "nowrap" }}>Req</TableCell>
               <TableCell sx={{ fontWeight: "bold" }}>Summary</TableCell>
-              <TableCell sx={{ width: 100, textAlign: "center", fontWeight: "bold" }}>Status</TableCell>
-              <TableCell sx={{ width: 80, textAlign: "center", fontWeight: "bold" }}>Details</TableCell>
+              <TableCell sx={{ width: 90, textAlign: "center", fontWeight: "bold", whiteSpace: "nowrap" }}>Status</TableCell>
+              <TableCell sx={{ width: 80, textAlign: "center", fontWeight: "bold", whiteSpace: "nowrap" }}>Details</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {Object.entries(groupedTraces).map(([cycleId, cycleTraces]) => {
+            {Object.entries(sortedGroupedTraces).map(([cycleId, cycleTraces]) => {
               // Sort traces within cycle by timestamp
               const sortedCycleTraces = cycleTraces.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
               const firstTrace = sortedCycleTraces[0];
               const lastTrace = sortedCycleTraces[sortedCycleTraces.length - 1];
+              
+              // Extract user details for this cycle
+              const userDetails = extractUserDetails(sortedCycleTraces);
               
               // Determine cycle summary based on the 3-step pattern
               const protocolDataRequests = sortedCycleTraces.filter(t => 
@@ -556,12 +668,27 @@ const RequestTracker = () => {
               if (tenancySubmissions.length > 0) steps.push('Tenancy Submit');
               if (statusChecks.length > 0) steps.push('Status Check');
               
+              // Create detailed summary with user info
+              let detailedSummary = '';
+              if (userDetails.name) {
+                detailedSummary += `👤 ${userDetails.name}`;
+              }
+              if (userDetails.address) {
+                detailedSummary += detailedSummary ? ` | 📍 ${userDetails.address}` : `📍 ${userDetails.address}`;
+              }
+              if (userDetails.landlordName) {
+                detailedSummary += detailedSummary ? ` | 🏠 ${userDetails.landlordName}` : `🏠 ${userDetails.landlordName}`;
+              }
+              if (userDetails.token) {
+                detailedSummary += detailedSummary ? ` | 🔑 ${userDetails.token}` : `🔑 ${userDetails.token}`;
+              }
+              
               if (steps.length === 3) {
-                cycleSummary = 'Complete Cycle (3/3 steps)';
+                cycleSummary = detailedSummary || 'Complete Cycle (3/3 steps)';
               } else if (steps.length > 0) {
-                cycleSummary = `Partial Cycle (${steps.length}/3): ${steps.join(' → ')}`;
+                cycleSummary = detailedSummary || `Partial Cycle (${steps.length}/3): ${steps.join(' → ')}`;
               } else {
-                cycleSummary = 'Other requests';
+                cycleSummary = detailedSummary || 'Other requests';
               }
               
               // Overall cycle status
@@ -592,9 +719,61 @@ const RequestTracker = () => {
                     />
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2" sx={{ fontSize: "0.8rem" }}>
-                      {cycleSummary || 'Mixed requests'}
-                    </Typography>
+                    <Box sx={{ width: "100%", maxWidth: "none" }}>
+                      {/* Tenant Information */}
+                      <Typography variant="body2" sx={{ fontSize: "0.85rem", fontWeight: "bold", color: "primary.main", mb: 0.2 }}>
+                        👤 {userDetails.name || 'Tenant: Information Not Available'}
+                      </Typography>
+                      {userDetails.address && (
+                        <Typography variant="caption" sx={{ fontSize: "0.75rem", color: "textSecondary", display: "block", mb: 0.2 }}>
+                          📍 {userDetails.address}
+                        </Typography>
+                      )}
+
+                      {/* Landlord Information */}
+                      {userDetails.landlordName && (
+                        <>
+                          <Typography variant="caption" sx={{ fontSize: "0.8rem", color: "success.main", fontWeight: "medium", display: "block", mb: 0.1 }}>
+                            🏠 {userDetails.landlordName}
+                          </Typography>
+                          {userDetails.landlordAddress && (
+                            <Typography variant="caption" sx={{ fontSize: "0.75rem", color: "success.light", display: "block", mb: 0.2 }}>
+                            📍 {userDetails.landlordAddress}
+                            </Typography>
+                          )}
+                        </>
+                      )}
+
+                      {/* Token */}
+                      {userDetails.token && (
+                        <Typography variant="caption" sx={{ 
+                          fontSize: "0.7rem", 
+                          color: "textSecondary", 
+                          display: "block", 
+                          fontFamily: "monospace",
+                          wordBreak: "break-all",
+                          lineHeight: 1.2,
+                          mb: 0.2
+                        }}>
+                          🔑 {userDetails.token}
+                        </Typography>
+                      )}
+
+                      {/* Cycle Status */}
+                      <Typography variant="caption" sx={{ 
+                        fontSize: "0.75rem", 
+                        color: steps.length === 3 ? "success.main" : "warning.main", 
+                        display: "block", 
+                        fontWeight: "bold" 
+                      }}>
+                        {steps.length === 3 ? '✅ Complete (3/3)' : `⏳ Partial (${steps.length}/3)`}
+                        {steps.length < 3 && steps.length > 0 && (
+                          <span style={{ fontSize: "0.7rem", fontWeight: "normal", marginLeft: "4px" }}>
+                            - {steps.join(' → ')}
+                          </span>
+                        )}
+                      </Typography>
+                    </Box>
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>
                     <Chip

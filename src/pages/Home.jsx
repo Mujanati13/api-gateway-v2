@@ -167,7 +167,7 @@ const ResponseSection = ({ title, data }) => {
 
 function Home() {
   const [env, setEnv] = useState("real"); // "real" or "test"
-  const [apiEnv, setApiEnv] = useState("PROD"); // "DEV" or "PROD" for API environment
+  const [apiEnv, setApiEnv] = useState("DEV"); // "DEV" or "PROD" for API environment
   const [token, setToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
