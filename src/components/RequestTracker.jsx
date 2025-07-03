@@ -811,41 +811,7 @@ const RequestTracker = () => {
   return (
     <Box sx={{ p: 2 }}>
       {/* Configuration Controls */}
-      {/* <Box sx={{ 
-        display: "flex", 
-        justifyContent: "space-between", 
-        alignItems: "center", 
-        mb: 3,
-        p: 2,
-        bgcolor: "grey.50",
-        borderRadius: 1,
-        border: "1px solid #e0e0e0"
-      }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
-          <Box>
-            <Typography variant="subtitle2" gutterBottom>
-              Firebase Functions
-            </Typography>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={firebaseEnabled}
-                  onChange={(e) => setFirebaseEnabled(e.target.checked)}
-                  color="primary"
-                />
-              }
-              label={firebaseEnabled ? "Enabled" : "Disabled"}
-            />
-          </Box>
-        </Box>
-
-        <Box sx={{ textAlign: "right" }}>
-          <br />
-          <Typography variant="caption" color="textSecondary">
-            Firebase: {firebaseEnabled ? "Active" : "Inactive"}
-          </Typography>
-        </Box>
-      </Box> */}
+     
       
       {error && (
         <Alert severity="error" sx={{ mb: 3 }}>
